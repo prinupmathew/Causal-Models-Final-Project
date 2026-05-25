@@ -1,0 +1,777 @@
+\documentclass[journal,11pt,onecolumn]{IEEEtran}
+
+% =========================
+% LuaLaTeX Font Setup
+% =========================
+\usepackage{fontspec}
+\usepackage{unicode-math}
+\setmainfont{TeX Gyre Termes}
+\setmathfont{TeX Gyre Termes Math}
+
+% =========================
+% Math, Tables, Figures
+% =========================
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{multirow}
+\usepackage{setspace}
+\setstretch{1.05}
+\setlength{\parskip}{0.2em}
+
+\usepackage{caption}
+
+\captionsetup[figure]{
+    justification=centering,
+    singlelinecheck=false
+}
+
+\captionsetup[table]{
+    justification=centering,
+    singlelinecheck=false
+}
+
+% =========================
+% Links
+% =========================
+\usepackage{xcolor}
+\definecolor{navyblue}{RGB}{0,0,128}
+\usepackage[
+    colorlinks=true,
+    linkcolor=navyblue,
+    citecolor=navyblue,
+    urlcolor=navyblue
+]{hyperref}
+
+% =========================
+% Page Numbering
+% =========================
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+
+\fancypagestyle{plain}{
+    \fancyhf{}
+    \fancyfoot[C]{\thepage}
+    \renewcommand{\headrulewidth}{0pt}
+}
+
+\fancypagestyle{IEEEtitlepagestyle}{
+    \fancyhf{}
+    \fancyfoot[C]{\thepage}
+    \renewcommand{\headrulewidth}{0pt}
+}
+
+% =========================
+% Figure Path
+% =========================
+\graphicspath{{figures/}{figures/final_report/}}
+
+% =========================
+% Custom Commands
+% =========================
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\ATE}{\mathrm{ATE}}
+\newcommand{\CATE}{\mathrm{CATE}}
+
+\begin{document}
+
+\title{Estimating Heterogeneous Incremental Effects of Digital Advertising Using the Criteo Uplift Prediction Dataset}
+
+\author{
+    Qingwei Zhang and Prinu Mathew\\
+    ADSP 32029: Causal Models in Data Science\\
+    University of Chicago
+}
+
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+    This report estimates the causal effect of randomized advertising treatment assignment using the Criteo Uplift Prediction Dataset. Advertising assignment increases visit probability by 1.0342 percentage points and conversion probability by 0.1152 percentage points. Heterogeneous treatment effect models further identify top-ranked user groups with conversion lift roughly three times larger than the full-sample average. Refutation tests support the stability of the assignment-based estimate, while negative-uplift segments remain exploratory.
+\end{abstract}
+
+\section{Causal Question and Motivation}
+
+\subsection{Research Question}
+
+This project asks:
+
+\begin{quote}
+    \emph{What is the incremental causal effect of randomized advertising treatment assignment on user visit and conversion outcomes, and how does that effect vary across users?}
+\end{quote}
+
+A secondary objective is to assess whether uplift models can identify persuadable users with larger incremental response than users prioritized by conventional conversion-response ranking.
+
+Let \(W_i\) denote treatment assignment, \(Y_i\) denote an outcome of interest (primary: conversion; secondary: visit), and \(X_i\) denote observed user covariates. The main estimand is the average treatment effect:
+
+\[
+    \ATE = \E[Y_i(1)-Y_i(0)].
+\]
+
+Because advertising decisions are often made at the user or segment level, the project also estimates conditional treatment effects:
+
+\[
+    \CATE(x)=\E[Y_i(1)-Y_i(0)\mid X_i=x].
+\]
+
+\subsection{Motivation}
+
+A standard prediction model identifies users likely to convert. A causal uplift model identifies users whose conversion probability changes because of treatment. This distinction matters because users with high baseline conversion probability may convert even without advertising.
+
+The practical significance is allocation quality: when campaign budgets are limited, impressions should be concentrated on persuadable users rather than on sure-thing converters or likely non-responders. Focusing on incremental lift improves budget efficiency, supports more responsible personalization, and aligns targeting decisions with causal impact rather than raw response propensity.
+
+This report therefore frames advertising targeting as a causal decision problem and compares uplift-based ranking with conventional response-model ranking in terms of incremental outcomes.
+
+\subsection{Context}
+
+This analysis uses the Criteo Uplift Prediction Dataset (Diemert et al., 2018), with approximately 14 million user-level observations from real-time bidding advertising campaigns.
+
+\begin{itemize}
+    \item \textbf{Treatment:} randomized assignment to advertising treatment (\texttt{treatment}).
+    \item \textbf{Exposure:} whether the user actually saw an ad (\texttt{exposure}), a post-assignment variable subject to non-compliance.
+    \item \textbf{Outcomes:} primary outcome \texttt{conversion} and secondary outcome \texttt{visit}.
+    \item \textbf{Covariates:} 12 anonymized user features (\texttt{f0}--\texttt{f11}).
+\end{itemize}
+
+The combination of randomized assignment and realistic non-compliance makes the dataset well suited for causal inference. In this report, the primary analysis estimates the intention-to-treat effect of assignment; instrumental-variables analysis for realized exposure is discussed as a future extension.
+
+\subsection{Roadmap and Key Findings}
+
+\textbf{Roadmap.}
+\begin{enumerate}
+    \item \textbf{Exploratory Data Analysis and Preprocessing:} describe the public Criteo dataset, variable roles, overall rates, covariate balance, and treatment-exposure structure under randomized assignment.
+    \item \textbf{Causal Identification and Estimation:} define estimands and assumptions, then implement assignment-based ATE estimation and heterogeneous treatment effect models (T-Learner, X-Learner, R-Learner, DML, DR-Learner).
+    \item \textbf{Results and Comparative Analysis:} report point estimates, confidence intervals, top-quintile observed lift, and uplift-ranking metrics (AUUC and Qini AUC) for model comparison.
+    \item \textbf{Customer Segmentation:} translate model-level ITE scores into actionable segments (Persuadables, No Impact, Sleeping Dogs) and compare cross-model targeting trade-offs.
+    \item \textbf{Evaluation:} assess robustness through DoWhy refutation tests, CATE evidence diagnostics, and interpretation checks for post-treatment pathway variables.
+    \item \textbf{Conclusion and Future Work:} summarize decision-relevant findings, limitations, and next-step extensions; it also provides the repository link.
+\end{enumerate}
+
+\textbf{Key Findings.}
+\begin{itemize}
+    \item \textbf{Average effects:} advertising assignment increases visit probability by \(1.0342\) percentage points and conversion probability by \(0.1152\) percentage points.
+    \item \textbf{Heterogeneity:} top predicted uplift quintiles achieve conversion lift between \(0.3362\) and \(0.4152\) percentage points, roughly three times the full-sample conversion ATE.
+    \item \textbf{Uplift ranking:} by AUUC, the T-Learner ranks first, with DR-Learner as the strongest robust challenger in this implementation.
+    \item \textbf{Targeting concentration:} about \(90\%\) to \(96\%\) of users are No Impact, while Persuadables are about \(3\%\) to \(6.6\%\), supporting focused rather than broad treatment.
+    \item \textbf{Robustness and policy caution:} DoWhy refutation tests are stable, but Sleeping Dogs show positive observed lift in this run, so suppression decisions require prospective validation.
+\end{itemize}
+
+
+\section{Exploratory Data Analysis and Preprocessing}
+
+\subsection{Data Source}
+
+The analysis uses the Criteo Uplift Prediction Dataset. This dataset contains \(13{,}979{,}592\) user-level observations and 16 variables. Each row represents one user in a randomized advertising experiment.
+
+\begin{table}[!htbp]
+    \centering
+    \caption{Variable roles}
+    \label{tab:variables}
+    \small
+    \begin{tabular}{llll}
+        \toprule
+        Symbol                 & Variable                  & Type    & Role                    \\
+        \midrule
+        \(W\)                  & \texttt{treatment}        & Binary  & Randomized assignment   \\
+        \(Y\)                  & \texttt{conversion}       & Binary  & Primary outcome         \\
+        \(Y_{\mathrm{visit}}\) & \texttt{visit}            & Binary  & Secondary outcome       \\
+        \(X\)                  & \texttt{f0}--\texttt{f11} & Numeric & User covariates         \\
+        --                     & \texttt{exposure}         & Binary  & Post-treatment exposure \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+The twelve covariates \texttt{f0}--\texttt{f11} are anonymized numeric features. They are used for balance checks and heterogeneous treatment effect modeling, but not for business-level feature interpretation.
+
+\subsection{Overall Rates}
+
+Figure~\ref{fig:overall_rates} summarizes the main binary variables. Treatment assignment is common, but realized exposure and conversion are rare.
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.62\linewidth]{figure_1_overall_rates.png}
+    \caption{Overall treatment, exposure, visit, and conversion rates.}
+    \label{fig:overall_rates}
+\end{figure}
+
+The treatment assignment rate is \(85.00\%\), the exposure rate is \(3.06\%\), the visit rate is \(4.70\%\), and the conversion rate is \(0.29\%\). The rarity of conversion makes CATE estimation difficult and motivates using \texttt{visit} as a secondary outcome.
+
+\subsection{Covariate Balance}
+
+Treatment assignment should be balanced if randomization was successful. The notebook checks balance using standardized mean differences:
+
+\[
+    \mathrm{SMD}_j =
+    \frac{\bar{X}_{j,W=1}-\bar{X}_{j,W=0}}
+    {\sqrt{(s^2_{j,W=1}+s^2_{j,W=0})/2}}.
+\]
+
+All standardized differences are below the common \(0.10\) threshold. The largest absolute standardized difference is approximately \(0.0474\).
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.68\linewidth]{figure_2b_covariate_balance.png}
+    \caption{Covariate balance under randomized treatment assignment.}
+    \label{fig:covariate_balance}
+\end{figure}
+
+This balance check supports the use of treatment assignment as a randomized causal treatment.
+
+\subsection{Treatment Assignment and Exposure}
+
+Treatment assignment and realized exposure are different variables. Figure~\ref{fig:exposure_compliance} shows one-sided non-compliance: control users are never exposed, while only \(3.6\%\) of treated users are exposed.
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[height=0.38\textheight]{figure_2c_exposure_compliance.png}
+    \caption{Compliance structure between treatment assignment and realized exposure.}
+    \label{fig:exposure_compliance}
+\end{figure}
+
+Because \texttt{exposure} occurs after assignment, the main analysis does not use it as the treatment variable. Instead, the report estimates the effect of randomized assignment. This avoids post-treatment adjustment bias.
+
+\subsection{Preprocessing}
+
+The covariate matrix is
+
+\[
+    X=(\texttt{f0},\texttt{f1},\ldots,\texttt{f11}).
+\]
+
+The treatment vector is \texttt{treatment}; the primary outcome is \texttt{conversion}; the secondary outcome is \texttt{visit}. The full dataset is used for descriptive statistics and ATE estimation. Heterogeneous treatment effect models are trained on a \(300{,}000\)-row sample for computational feasibility, with held-out evaluation used for uplift ranking.
+
+\section{Causal Identification and Estimation}
+
+\subsection{Target Estimands}
+
+For each user \(i\), define potential outcomes \(Y_i(1)\) and \(Y_i(0)\), where \(1\) denotes assignment to advertising treatment and \(0\) denotes assignment to control. The observed outcome is
+
+\[
+    Y_i = W_iY_i(1) + (1-W_i)Y_i(0).
+\]
+
+The primary estimand is the average treatment effect:
+
+\[
+    \ATE = \E[Y_i(1)-Y_i(0)].
+\]
+
+The report also estimates heterogeneous effects through the conditional average treatment effect:
+
+\[
+    \CATE(x)=\E[Y_i(1)-Y_i(0)\mid X_i=x].
+\]
+
+The ATE measures average incrementality. The CATE measures how incremental response varies across users.
+
+\subsection{Identification Assumptions}
+
+\paragraph{Core identification assumptions}
+The assignment-based analysis relies on the following assumptions:
+\begin{itemize}
+    \item \textbf{Random assignment / exchangeability (for assignment-based effects).}
+          Assignment \texttt{treatment} is independent of potential outcomes and
+          pre-treatment covariates by design.
+    \item \textbf{SUTVA (stable unit treatment value assumption).}
+          One user's assignment does not affect another user's outcome (no
+          interference), and treatment assignment corresponds to a well-defined
+          treatment condition:
+          \[
+              Y_i = Y_i(W_i).
+          \]
+    \item \textbf{Consistency.}
+          The observed outcome equals the potential outcome under each user's realized
+          assignment.
+    \item \textbf{Positivity / overlap.}
+          Both treatment and control assignments are represented over the relevant
+          covariate support:
+          \[
+              0 < \Prob(W_i=1\mid X_i=x) < 1.
+          \]
+    \item \textbf{Temporal ordering.}
+          Covariates \texttt{f0}--\texttt{f11} are treated as pre-treatment.
+          \texttt{exposure} and \texttt{visit} are post-assignment variables and are
+          not used as confounders for ITT/ATE identification.
+\end{itemize}
+
+\paragraph{Method-specific interpretation assumptions}
+\begin{itemize}
+    \item \textbf{ATE/ITT on \texttt{conversion}:} random assignment,
+          SUTVA, and consistency.
+    \item \textbf{CATE models (T/X/R-Learner, DML, DR-Learner):} ATE/ITT
+          assumptions plus overlap across covariate regions used for heterogeneity
+          estimation.
+\end{itemize}
+
+\paragraph{Empirical SUTVA diagnostics (indirect, not proof)}
+Because SUTVA cannot be proven from observed data alone, we include supporting
+diagnostics:
+\begin{itemize}
+    \item \textbf{Control contamination check:}
+          control users have near-zero realized exposure (\texttt{Control exposure rate}
+          \(=0.0000\%\)).
+    \item \textbf{Spillover proxy placebo test:}
+          pseudo-neighborhoods are constructed from pre-treatment features
+          (\texttt{f0}--\texttt{f11}), peer treatment share is computed (excluding
+          self), and controls-only associations are tested.
+    \item \textbf{Robustness checks:}
+          random-neighborhood placebo, treatment-permutation randomization inference,
+          and covariate-adjusted logistic checks with bootstrap confidence intervals.
+\end{itemize}
+
+\paragraph{Final diagnostic summary}
+Diagnostics indicate a \emph{potential spillover signal}, stronger for
+\texttt{visit} than for \texttt{conversion}:
+\begin{itemize}
+    \item \textbf{\texttt{visit}:} placebo \(p=0.0050\), RI \(p=0.0332\) (both < 0.05),
+          adjusted logistic peer-share CI \([0.7423,\ 18.9475]\), consistent with a
+          potential spillover signal.
+    \item \textbf{\texttt{conversion}:} placebo \(p=0.0050\), RI \(p=0.0033\) (both < 0.05),
+          but adjusted logistic peer-share CI \([-0.1136,\ 2.8454]\), giving mixed
+          evidence after adjustment.
+\end{itemize}
+Accordingly, these are interpreted as \emph{potential spillover signals}, not
+definitive evidence of SUTVA violation.
+
+\subsection{Methods}
+
+Table~\ref{tab:methods} summarizes the estimators implemented in the notebook.
+
+\begin{table}[!htbp]
+    \centering
+    \caption{Causal estimators}
+    \label{tab:methods}
+    \small
+    \begin{tabular}{lll}
+        \toprule
+        Method                  & Estimand & Purpose                           \\
+        \midrule
+        Difference-in-means     & ATE      & Baseline randomized estimate      \\
+        T-Learner               & CATE     & Main uplift model                 \\
+        X-Learner               & CATE     & Handles imbalanced treatment arms \\
+        R-Learner               & CATE     & Residualized robustness check     \\
+        Double Machine Learning & CATE     & Orthogonalized robustness check   \\
+        DR-Learner              & CATE     & Doubly robust CATE comparison     \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+The randomized ATE is estimated by the difference in outcome rates:
+
+\begin{equation}
+    \mathrm{ATE}_{\mathrm{est}}
+    =
+    \bar{Y}_{W=1}
+    -
+    \bar{Y}_{W=0}.
+    \label{eq:ate_estimator}
+\end{equation}
+
+For CATE estimation, the meta-learners and orthogonal learners produce user-level uplift scores \(\hat{\tau}(X_i)\). The T-Learner estimates separate outcome models for treatment and control users:
+
+\[
+    \hat{\tau}_T(x)=\hat{\mu}_1(x)-\hat{\mu}_0(x).
+\]
+
+The X-Learner imputes treatment effects separately for treated and control users and then combines the resulting effect models. The R-Learner and Double Machine Learning methods use residualization to reduce sensitivity to nuisance model errors. The DR-Learner combines outcome regression and propensity weighting.
+
+\subsection{Uplift Evaluation}
+
+The CATE models are evaluated as ranking tools. Users are sorted by predicted uplift and grouped into quintiles. For each quintile \(q\), observed lift is computed as
+
+\begin{equation}
+    \Delta^{\mathrm{obs}}_q
+    =
+    \bar{Y}_{q,W=1}
+    -
+    \bar{Y}_{q,W=0}.
+    \label{eq:observed_lift}
+\end{equation}
+
+Here, \(\Delta^{\mathrm{obs}}_q\) denotes the observed treatment-control lift in quintile \(q\).
+
+A useful uplift model should show higher observed lift in the top-ranked quintile. The notebook also computes AUUC and Qini AUC for model comparison.
+
+\section{Results and Comparative Analysis}
+
+\subsection{Average Treatment Effects}
+
+Table~\ref{tab:ate_results} reports the assignment-based ATE estimates. Effects are reported in percentage points.
+
+\begin{table}[!htbp]
+    \centering
+    \caption{Average treatment effect estimates}
+    \label{tab:ate_results}
+    \small
+    \begin{tabular}{lrrrrr}
+        \toprule
+        Outcome & Control Rate             & Treated Rate & ATE & 95\% CI & \(p\)-value \\
+        \midrule
+        \texttt{visit}
+                & \(3.8201\%\)
+                & \(4.8543\%\)
+                & \(1.0342\) pp
+                & \([1.0056,\ 1.0629]\) pp
+                & \(<0.001\)                                                            \\
+
+        \texttt{conversion}
+                & \(0.1938\%\)
+                & \(0.3089\%\)
+                & \(0.1152\) pp
+                & \([0.1085,\ 0.1219]\) pp
+                & \(<0.001\)                                                            \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Advertising assignment increases both outcomes. The visit effect is \(1.0342\) percentage points. The conversion effect is \(0.1152\) percentage points. Although the conversion effect is small in absolute terms, it is meaningful relative to the control conversion rate of \(0.1938\%\).
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.68\linewidth]{figure_3_average_treatment_effects.png}
+    \caption{Average treatment effects of randomized advertising assignment with 95\% confidence intervals.}
+    \label{fig:ate_effects}
+\end{figure}
+
+
+In business terms, the campaign creates measurable incremental value rather than random noise. For every 1{,}000 users assigned to treatment, the ATE implies about 10 additional visits and about 1 additional conversion versus control. At operational scale, this corresponds to roughly 1{,}034 extra visits and 115 extra conversions per 100{,}000 assigned users. Practically, this means ATE provides evidence that the campaign works overall, while CATE ranking should be used to prioritize budget toward users with the highest expected incremental return.
+
+\subsection{Heterogeneous Treatment Effects}
+
+Table~\ref{tab:cate_conversion} summarizes CATE results for the primary outcome \texttt{conversion}. The key evaluation metric is observed lift in the top predicted uplift quintile.
+
+\begin{table}[!htbp]
+    \centering
+    \caption{CATE model comparison for primary outcome conversion}
+    \label{tab:cate_conversion}
+    \small
+    \begin{tabular}{lrr}
+        \toprule
+        Model                   & Mean Predicted CATE & Top-Quintile Observed Lift \\
+        \midrule
+        T-Learner               & \(0.0906\) pp       & \(0.4152\) pp              \\
+        X-Learner               & \(0.0852\) pp       & \(0.3724\) pp              \\
+        R-Learner               & \(0.0533\) pp       & \(0.3362\) pp              \\
+        Double Machine Learning & \(0.0372\) pp       & \(0.3428\) pp              \\
+        DR-Learner              & \(0.0778\) pp       & \(0.3421\) pp              \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Across models, the top predicted uplift quintile has conversion lift between \(0.3362\) and \(0.4152\) percentage points. This is roughly three times the full-sample conversion ATE of \(0.1152\) percentage points. The result suggests meaningful heterogeneity in advertising response.
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.82\linewidth]{figure_4c_model_level_cate_vs_top_quintile_lift.png}
+    \caption{Sorted model-level comparison of mean predicted CATE and top-quintile observed lift with conversion ATE benchmark.}
+    \label{fig:cate_vs_top_quintile_lift}
+\end{figure}
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.82\linewidth]{figure_4b_ranked_uplift_comparison.png}
+    \caption{Observed conversion lift by predicted uplift quintile on held-out data.}
+    \label{fig:ranked_uplift}
+\end{figure}
+
+The T-Learner produces the highest top-quintile conversion lift, followed by the X-Learner. The other three methods produce similar top-quintile lift around \(0.34\) percentage points. The consistency across methods supports the conclusion that high-uplift users can be identified, even though model rankings differ.
+
+In business terms, the campaign delivers positive average incrementality, but most commercial value is concentrated in users ranked with the highest predicted uplift. For \texttt{conversion}, the average impact is about 1.15 extra conversions per 1{,}000 users, while the top-ranked segment delivers about 3.36 to 4.15 extra conversions per 1{,}000. For \texttt{visit}, the average impact is about 10.34 extra visits per 1{,}000, while the top-ranked segment delivers about 30.7 to 33.5 extra visits per 1{,}000. Operationally, this supports prioritizing spend on high-score segments first and maintaining DML/DR as challenger models for risk control and ranking robustness.
+
+\subsection{Secondary Outcome: Visit}
+
+The same CATE analysis is repeated for \texttt{visit}. Since visits are less sparse than conversions, this outcome provides a more stable check.
+
+\begin{table}[!htbp]
+    \centering
+    \caption{CATE model comparison for secondary outcome visit}
+    \label{tab:cate_visit}
+    \small
+    \begin{tabular}{lrr}
+        \toprule
+        Model                   & Mean Predicted CATE & Top-Quintile Observed Lift \\
+        \midrule
+        T-Learner               & \(0.7412\) pp       & \(3.3519\) pp              \\
+        X-Learner               & \(0.7485\) pp       & \(3.3189\) pp              \\
+        R-Learner               & \(0.7595\) pp       & \(3.0704\) pp              \\
+        Double Machine Learning & \(0.7253\) pp       & \(3.2880\) pp              \\
+        DR-Learner              & \(0.7751\) pp       & \(3.1834\) pp              \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+The visit results show the same pattern. Top-quintile observed lift ranges from \(3.0704\) to \(3.3519\) percentage points, compared with the full-sample visit ATE of \(1.0342\) percentage points.
+
+\section{Customer Segmentation}
+
+\subsection{Segmentation Rule and Operational Framing}
+
+To translate model scores into targeting groups, we applied a shared ITE thresholding rule on conversion-focused holdout predictions from T-Learner, X-Learner, R-Learner, Double Machine Learning (DML), and DR-Learner.
+
+Define the percentage-point ITE score as
+\begin{equation}
+    s_i = 100 \cdot \hat{\tau}_i .
+\end{equation}
+
+Each user is assigned to one of three operational segments:
+\begin{itemize}
+    \item \textbf{Sleeping Dogs}: \(s_i < -0.5\),
+    \item \textbf{Persuadables}: \(s_i > +0.5\),
+    \item \textbf{No Impact}: otherwise.
+\end{itemize}
+
+
+
+\subsection{Model-Level ITE Segment Visuals}
+
+Figures~\ref{fig:segmentation_grid} show segment composition for each learner under the same threshold rule.
+
+\begin{figure}[H]
+    \centering
+
+    % ---------- Row 1 ----------
+    \begin{minipage}{0.46\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{figure_6a_t_learner_ite_segmentation.png}
+        \caption*{(a) T-Learner}
+    \end{minipage}
+    \hfill
+    \begin{minipage}{0.46\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{figure_6b_x_learner_ite_segmentation.png}
+        \caption*{(b) X-Learner}
+    \end{minipage}
+
+    \vspace{0.8em}
+
+    % ---------- Row 2 ----------
+    \begin{minipage}{0.46\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{figure_6c_r_learner_ite_segmentation.png}
+        \caption*{(c) R-Learner}
+    \end{minipage}
+    \hfill
+    \begin{minipage}{0.46\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{figure_6e_dr_learner_ite_segmentation.png}
+        \caption*{(d) DR-Learner}
+    \end{minipage}
+
+    \caption{ITE segment distribution across causal uplift learners under a shared threshold rule.}
+    \label{fig:segmentation_grid}
+
+\end{figure}
+
+Table~\ref{tab:segment_cross_model} summarizes the cross-model holdout ranges from the notebook outputs.
+
+\begin{table}[!htbp]
+    \centering
+    \caption{Cross-model segment summary on conversion holdout}
+    \label{tab:segment_cross_model}
+    \small
+    \begin{tabular}{lccc}
+        \toprule
+        Segment       & Share Range                    & Observed Lift Range           & Mean Predicted ITE Range       \\
+        \midrule
+        Sleeping Dogs & \(1.2492\%\) to \(3.6725\%\)   & \(+2.0024\) to \(+5.1802\) pp & \(-14.1112\) to \(-4.0956\) pp \\
+        No Impact     & \(89.7708\%\) to \(95.5283\%\) & \(+0.0201\) to \(+0.0595\) pp & \(+0.0331\) to \(+0.0398\) pp  \\
+        Persuadables  & \(3.0075\%\) to \(6.5567\%\)   & \(+0.7979\) to \(+1.7645\) pp & \(+2.8616\) to \(+5.9686\) pp  \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Cross-Model ITE Segment Heatmap}
+
+Figure~\ref{fig:seg_heatmap} compares segment-level behavior across all five learners in a compact view. The left panel reports observed lift by segment and learner, while the right panel reports segment share captured by each learner.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.90\linewidth]{figure_6d_cross_model_segment_heatmaps.png}
+    \caption{Cross-model ITE segment heatmap: observed lift (left) and segment share (right).}
+    \label{fig:seg_heatmap}
+\end{figure}
+
+The heatmap highlights the targeting trade-off directly: T-Learner and X-Learner allocate relatively larger audiences to Persuadables, while R-Learner and DML are more conservative. DR-Learner sits between these patterns, with stronger Persuadables reach than R-Learner and DML but less than T-Learner.
+
+\subsection{Customer Segmentation Findings Summary}
+
+\paragraph{Segmentation Findings.}
+Across the \texttt{T-Learner}, \texttt{X-Learner}, \texttt{R-Learner}, \texttt{DML}, and \texttt{DR-Learner} models on the conversion holdout set, most users are classified as \textbf{No Impact}, representing \(\,89.7708\%\) to \(95.5283\%\) of the scored population. The \textbf{Persuadables} segment is much smaller but more actionable, ranging from \(\,3.0075\%\) to \(6.5567\%\), while \textbf{Sleeping Dogs} remain limited in share at \(\,1.2492\%\) to \(3.6725\%\).
+
+The cross-model comparison and heatmap evidence show a clear reach-versus-conservatism trade-off. \texttt{T-Learner} and \texttt{X-Learner} identify a larger Persuadables audience (\(6.5567\%\) and \(6.0450\%\), respectively). \texttt{R-Learner} and \texttt{DML} are more conservative (\(3.1517\%\) and \(3.0075\%\)), while \texttt{DR-Learner} sits between these approaches at \(5.0875\%\).
+
+Observed segment lift supports the targeting strategy. Persuadables show positive lift, ranging from \(+0.7979\) to \(+1.7645\) percentage points, making them the highest-priority audience for treatment. The No Impact group has near-zero lift, between \(+0.0201\) and \(+0.0595\) percentage points, suggesting limited incremental value from broad targeting. Although Sleeping Dogs have negative predicted treatment effects, their observed lift is positive, ranging from \(+2.0024\) to \(+5.1802\) percentage points. Because this creates a mismatch between predicted and observed behavior, suppression of this group is \textbf{not yet validated} and should be tested prospectively before operational use.
+
+\paragraph{Business Explanation.}
+In business terms, the results show that most customers are low incremental responders. Treating the full audience would create high campaign spend with limited marginal return. A more practical strategy is to focus spend on the smaller Persuadables segment, where observed lift indicates stronger incremental conversion potential.
+
+Audience counts are normalized per \(100{,}000\) scored users using:
+\[
+    \text{segment\_users} = (\text{segment\_share\_pct} / 100)\times 100{,}000,
+\]
+\[
+    \text{incremental conversions} = \text{segment\_users}\times (\text{observed\_lift\_pp} / 100).
+\]
+
+Using this approach, Persuadables represent approximately \(3{,}008\) to \(6{,}557\) users per \(100{,}000\) scored users and generate about \(24\) to \(116\) incremental conversions. By contrast, No Impact represents approximately \(89{,}771\) to \(95{,}528\) users but produces only about \(18\) to \(57\) incremental conversions. Sleeping Dogs represent approximately \(1{,}249\) to \(3{,}673\) users and show about \(25\) to \(190\) incremental conversions based on observed lift; however, because predicted effect is negative while observed lift is positive, this segment should be treated as a validation segment rather than an automatic suppression segment.
+
+\paragraph{Recommended Operational Policy.}
+The recommended policy is to use \textbf{\texttt{T-Learner}} as the primary ranking model because it provides the largest actionable Persuadables reach. \textbf{\texttt{DR-Learner}} should be used as a robust challenger model, since it balances reach with doubly robust estimation. \textbf{\texttt{X-Learner}} can be used when additional reach is needed, especially when the business requires a broader targeting pool.
+
+\textbf{\texttt{R-Learner}} and \textbf{\texttt{DML}} are more conservative and should be used as guardrails for stability checks. Sleeping Dogs should not be automatically suppressed until prospective validation confirms treatment truly harms this segment.
+
+
+
+\section{Evaluation}
+
+This evaluation section validates whether uplift-based segmentation is reliable for deployment. Evaluation is structured as: (1) ground-truth-aware diagnostics when true effects are available, (2) robustness tests when true effects are unavailable, and (3) holdout uplift-ranking quality through Qini and AUUC.
+
+\subsection{Ground-Truth-Aware Evaluation}
+
+When true treatment effects are observed, for example in synthetic environments, preferred diagnostics are direct estimation error checks against known truth:
+
+\begin{itemize}
+    \item \textbf{ATE absolute error:} \(|\widehat{\ATE} - \ATE_{\mathrm{true}}|\).
+    \item \textbf{CATE quality checks:} calibration and ranking diagnostics against \(\tau_{\mathrm{true}}(x)\), such as RMSE or rank correlation.
+\end{itemize}
+
+For this Criteo experiment, unit-level true treatment effects are not observed. Therefore, the primary evaluation branch is ground-truth-unavailable robustness and uplift-ranking checks.
+
+\subsection{Robustness Without Ground Truth: DoWhy Refutation Tests}
+
+Following DoWhy refutation guidance, the main treatment-to-conversion estimate is stress-tested using placebo replacement, subsampling, and random-noise confounding checks. This merges the core robustness workflow and the report-style snapshot interpretation, you can see it in Table~\ref{tab:refutation_tests}.
+
+\begin{table}[!htbp]
+    \centering
+    \caption{Report-style DoWhy refutation snapshot}
+    \label{tab:refutation_snapshot}
+    \small
+    \begin{tabular}{lrrrrl}
+        \toprule
+        Test                & Estimated Effect & New Effect  & Shift       & \(p\)-value & Result \\
+        \midrule
+        Placebo Treatment   & \(0.0009\)       & \(-0.0000\) & \(-0.0009\) & \(0.9800\)  & Pass   \\
+        Data Subset         & \(0.0009\)       & \(0.0009\)  & \(0.0000\)  & \(0.8800\)  & Pass   \\
+        Random Common Cause & \(0.0009\)       & \(0.0009\)  & \(-0.0000\) & \(0.9000\)  & Pass   \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+
+All three checks return stable direction and magnitude with high \(p\)-values, so there is no refutation evidence that the result is an artifact of placebo assignment, subset instability, or random irrelevant confounding. The correct interpretation remains a small but stable average effect: \(0.0009\), about \(0.09\) percentage points.
+
+\subsection{Uplift Evaluation Across Causal Models: Qini Curve and AUUC}
+
+Uplift ranking performance is evaluated on held-out users using Qini curves and the Area Under the Uplift Curve (AUUC). Qini curves evaluate incremental gain concentration across targeting depth, while AUUC summarizes overall uplift ranking quality into a single metric. We can see it in Figure~\ref{fig:qini_curve}.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.72\linewidth]{figure_7a_qini_curve_primary_outcome.png}
+    \caption{Qini curve comparison for the primary conversion outcome across causal uplift models.}
+    \label{fig:qini_curve}
+\end{figure}
+
+The Qini curves rise sharply in the first \(5\%\) to \(15\%\) targeted population share, indicating concentrated incremental value in top-ranked users. The T-Learner shows the strongest early-targeting performance, reaching the highest Qini peak at approximately \(75\)--\(80\) incremental gain in this run. As targeting expands, the curves gradually decline and can cross below zero, indicating weaker efficiency when treatment is broadened to lower-ranked users. We can
+see it at Figure~\ref{fig:auuc_ranking}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.68\linewidth]{figure_7b_auuc_model_ranking.png}
+    \caption{AUUC ranking for the primary conversion outcome across causal uplift models.}
+    \label{fig:auuc_ranking}
+\end{figure}
+
+The AUUC ranking, where higher values indicate better global uplift-ranking quality, is:
+
+\[
+    \text{T-Learner } 100.1273
+    >
+    \text{DR-Learner } 96.4793
+    >
+    \text{X-Learner } 91.3866
+    >
+    \text{DML } 86.1768
+    >
+    \text{R-Learner } 84.5725.
+\]
+
+This does not contradict segment-level comparisons: a model can show strong lift within a narrow targeting segment while still underperforming on full-population ranking utility. For global uplift ranking in this experiment, the T-Learner serves as the primary model, while the DR-Learner acts as the robust challenger model.
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Conclusion and Future Work}
+
+\subsection{Summary of Findings}
+
+This report estimates the causal effect of randomized advertising treatment assignment using the Criteo Uplift Prediction Dataset.
+
+The assignment-based ATE is positive for both outcomes. Advertising assignment increases visit probability by \(1.0342\) percentage points and conversion probability by \(0.1152\) percentage points. The conversion effect is small in absolute terms but meaningful relative to the control conversion rate of \(0.1938\%\).
+
+The CATE results show meaningful heterogeneity. Across models, the top predicted uplift quintile has conversion lift between \(0.3362\) and \(0.4152\) percentage points, roughly three times the full-sample conversion ATE. The T-Learner performs best by top-quintile lift and AUUC, followed by the DR-Learner and X-Learner.
+
+The main conclusion is:
+
+\begin{quote}
+    \emph{Advertising assignment creates positive average incrementality, and uplift models can identify user groups with substantially higher incremental response than the population average.}
+\end{quote}
+
+\subsection{Limitations}
+
+Several limitations remain.
+
+First, conversion is rare, with an overall rate of only \(0.2917\%\). This makes individual-level uplift estimation noisy.
+
+Second, the covariates are anonymized. They support modeling but limit business interpretation.
+
+Third, the main estimand is the intention-to-treat effect of assignment, not the causal effect of actual ad exposure.
+
+Fourth, the dataset does not provide ground-truth individual treatment effects, so CATE estimates are evaluated indirectly through uplift ranking.
+
+Fifth, negative-uplift segments are not validated strongly enough for treatment suppression decisions.
+
+\subsection{Future Work}
+
+Future work could extend the analysis in three directions.
+
+First, causal forests or generalized random forests could provide heterogeneous effect estimates with uncertainty intervals.
+
+Second, an instrumental variables design could use randomized assignment as an instrument for realized exposure to estimate the local average treatment effect of actual ad exposure for compliers.
+
+Third, prospective validation could test an uplift-based targeting policy against standard targeting in a new randomized experiment.
+
+\section{Code Repository Link}
+
+The complete code repository for this project is available at:
+
+\begin{quote}
+    \url{https://github.com/prinupmathew/ADSP-32029-ON01-Causal-Models-Final-Project}
+\end{quote}
+
+The repository includes the notebook, modeling code, generated figures, and a README file describing the environment and reproduction steps.
+
+\section*{References}
+
+\begin{enumerate}
+    \item Diemert, E., Betlei, A., Renaudin, C., and Amini, M.-R. ``A Large Scale Benchmark for Uplift Modeling.'' Criteo AI Lab, 2018.
+    \item Imbens, G. W., and Rubin, D. B. \emph{Causal Inference for Statistics, Social, and Biomedical Sciences}. Cambridge University Press, 2015.
+    \item Pearl, J. \emph{Causality: Models, Reasoning, and Inference}. Cambridge University Press, 2009.
+    \item Sharma, A., and Kiciman, E. ``DoWhy: An End-to-End Library for Causal Inference.'' Microsoft Research, 2020.
+\end{enumerate}
+
+\end{document}
