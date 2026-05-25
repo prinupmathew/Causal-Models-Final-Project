@@ -19,4 +19,5 @@ dependencies:
       - statsmodels>=0.14.5
       - toolz<1.0
       - dowhy==0.14
+      - scikit-learn==1.8.0
 name: Causal-Inference-Program-Env

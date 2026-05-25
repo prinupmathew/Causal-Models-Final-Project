@@ -24,7 +24,6 @@ From the repository root:
 ```powershell
 conda env create -f "code/causal-inference-program.yml"
 conda activate Causal-Inference-Program-Env
-pip install scikit-learn
 ```
 
 Why `scikit-learn` is included explicitly here: the notebook imports sklearn modules directly (`LogisticRegression`, `train_test_split`, `MiniBatchKMeans`) and this package is not pinned explicitly in the YAML.
