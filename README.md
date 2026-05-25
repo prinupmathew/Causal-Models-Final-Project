@@ -2,7 +2,7 @@
 
 This repository reproduces the figures and core metrics summarizedby running the notebook `code/Qingwei_Prinu - Causal Models - Final Project Report.ipynb` end to end.
 
-The notebook is the executable source of truth for implementation details. The notes HTML is the benchmark reference for expected results and interpretation.
+The notebook is the executable source of truth for implementation details.
 
 ## Reproduction Scope
 
@@ -121,5 +121,4 @@ Use the following checkpoints to verify you reproduced the same analysis profile
 2. Place dataset at the expected path.
 3. Launch notebook from `code/`.
 4. Run all cells once, top to bottom.
-5. Compare produced figures and checkpoints against `code/causal_inference_criteo_uplift_final_notes.html`.
 
