@@ -638,7 +638,7 @@ This evaluation section validates whether uplift-based segmentation is reliable 
 When true treatment effects are observed, for example in synthetic environments, preferred diagnostics are direct estimation error checks against known truth:
 
 \begin{itemize}
-    \item \textbf{ATE absolute error:} \(|\widehat{\ATE} - \ATE_{\mathrm{true}}|\).
+    \item \textbf{ATE absolute error:} \(|\hat{A}\mathit{TE} - \mathit{ATE}_{\mathrm{true}}|\).
     \item \textbf{CATE quality checks:} calibration and ranking diagnostics against \(\tau_{\mathrm{true}}(x)\), such as RMSE or rank correlation.
 \end{itemize}
 
@@ -646,7 +646,7 @@ For this Criteo experiment, unit-level true treatment effects are not observed. 
 
 \subsection{Robustness Without Ground Truth: DoWhy Refutation Tests}
 
-Following DoWhy refutation guidance, the main treatment-to-conversion estimate is stress-tested using placebo replacement, subsampling, and random-noise confounding checks. This merges the core robustness workflow and the report-style snapshot interpretation, you can see it in Table~\ref{tab:refutation_tests}.
+Following DoWhy refutation guidance, the main treatment-to-conversion estimate is stress-tested using placebo replacement, subsampling, and random-noise confounding checks. This merges the core robustness workflow and the report-style snapshot interpretation, you can see it in Table~\ref{tab:refutation_snapshot}.
 
 \begin{table}[!htbp]
     \centering
